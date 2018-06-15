@@ -5,10 +5,12 @@ buildscript {
 	}
 	repositories {
 		mavenCentral()
+        jcenter()
 	}
 	dependencies {
 		classpath("org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}")
-	}
+		classpath 'com.bmuschko:gradle-docker-plugin:3.2.6'
+}
 }
 
 apply plugin: 'kotlin'
@@ -16,6 +18,15 @@ apply plugin: 'kotlin-spring'
 apply plugin: 'eclipse'
 apply plugin: 'org.springframework.boot'
 apply plugin: 'io.spring.dependency-management'
+
+repositories {
+    jcenter()
+}
+
+apply plugin: 'com.bmuschko.docker-remote-api'
+
+import com.bmuschko.gradle.docker.tasks.image.*
+import com.bmuschko.gradle.docker.tasks.container.*
 
 group = 'pl.marekstrejczek.ci'
 version = '0.0.1-SNAPSHOT'
@@ -59,3 +70,37 @@ dependencyManagement {
 		mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
 	}
 }
+
+task copyJar(type: Copy) {
+	dependsOn   'bootJar'
+	from        "build/libs/demo-${project.version}.jar"
+	into        'build/docker/app'
+	rename { String fileName ->
+		fileName.replace("-${project.version}", "")
+	}
+}
+
+task copyDockerfile(type: Copy) {
+    from        "docker/Dockerfile"
+    into        'build/docker/'
+}
+
+task buildDockerImage(type: DockerBuildImage) {
+	dependsOn   copyJar, copyDockerfile
+	if (System.env.DOCKER_HOST) {
+		url = "$System.env.DOCKER_HOST".replace("tcp","https")
+		if (System.env.DOCKER_CERT_PATH) {
+			certPath = new File(System.env.DOCKER_CERT_PATH)
+
+		}
+	}
+	else {
+		url = 'unix:///var/run/docker.sock'
+	}
+    dockerFile = file('build/docker/Dockerfile')
+	inputDir = file('build/docker')
+	tag = 'cidemo/demo'
+}
+
+build.dependsOn buildDockerImage
+build.dependsOn copyJar
